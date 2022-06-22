@@ -5,12 +5,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import os
 
 from utils import convert_image, adjust_learning_rate,load_image_to_tensor
 
 import wandb
 
-
+os.environ["CUDA_VISIBLE_DEVICES"]='0,1'
 
 torch.manual_seed(123) 
 
@@ -57,6 +58,7 @@ class RRDB(nn.Module):
         self.RDB2 = ResidualDenseBlock_5C(nf, gc)
         self.RDB3 = ResidualDenseBlock_5C(nf, gc)
 
+
     def forward(self, x):
         out = self.RDB1(x)
         out = self.RDB2(out)
@@ -80,6 +82,14 @@ class RRDBNet(nn.Module):
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
+    def initialize_weights(self) -> None:
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(module.weight)
+                module.weight.data *= 0.1
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
     def forward(self, x):
         fea1 = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea1))
@@ -94,11 +104,12 @@ class RRDBNet(nn.Module):
 
 images = load_image_to_tensor()
 
-name ="RRDB_64F7B32GC_L1_LR0.0001_NEP7005_LOSSWT1._TTYPEdownsampledges_WAND"
-wandb.init(project='debugging-nn',name='RRDB_64F7B32GC_L1_LR0.0001_NEP7005_LOSSWT1._TTYPEdownsampledges_WAND')
+name ="RRDB_64F7B32GC_L1_LR0.0001_NEP2005_LOSSWT1._TTYPEdownsampledges_LossTypeAddition_InitKai_WAND"
+wandb.init(project='debugging-nn',name='RRDB_64F7B32GC_L1_LR0.0001_NEP2005_LOSSWT1._TTYPEdownsampledges_LossTypeAddition_InitKai_WAND')
 
 #training
 net = RRDBNet(1, 1, 64, 7, gc=32)
+net.initialize_weights()
 print(net)
 
 loss_fn = nn.L1Loss()
@@ -117,8 +128,8 @@ lr = 0.0001
 optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9)
 # optimizer = optim.Adam(net.parameters(), lr=lr)
 
-epochs = 7005
-n_freq = 500
+epochs = 2005
+n_freq = 100
 loss_wt = 1.
 
 for i in range(epochs):
@@ -132,8 +143,9 @@ for i in range(epochs):
         print('trun shape',result['trun'].shape)
         print('fea2',result['fea2'].shape)
         print('fea3',result['fea3'].shape)
-
-    loss = loss_fn(label_edges,output)*loss_wt
+    # quit();
+    # loss = loss_fn(label_edges,output)*loss_wt
+    loss = loss_fn(label,final_output)*loss_wt
 
     optimizer.zero_grad()
     loss.backward()
@@ -142,6 +154,7 @@ for i in range(epochs):
     wandb.log({"learning-rate":lr})
 
     if i % n_freq == 0:
+        print(f'epoch no: {i}')
         print(f'range output: {output.min()},{output.max()}')
         print('loss:', loss.item())
         fea1 = convert_image(result['fea1'])
@@ -152,9 +165,9 @@ for i in range(epochs):
         # output1 = convert_image(result['out'])
         output1 = convert_image(final_output)
 
-        print('reached here')
-        input_image = wandb.Image(input, caption="input_edges")      
-        wandb.log({"input_edges": input_image})
+        # print('reached here')
+        # input_image = wandb.Image(input, caption="input_edges")      
+        # wandb.log({"input_edges": input_image})
 
         fea1_image = wandb.Image(fea1, caption="feature1")      
         wandb.log({"fea1": fea1_image})
